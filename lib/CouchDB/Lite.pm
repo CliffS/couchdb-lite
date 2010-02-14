@@ -408,7 +408,7 @@ sub temp_view
 
 The C<$designdoc> may incluide the C<_design/> part of the name but
 it will be added in if not present.  The C<$view> is a string containing the
-name of the view.  Opts is a hash reference of CouchDN standard options.
+name of the view.  Opts is a hash reference of CouchDB standard options.
 
 For example:
 
