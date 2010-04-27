@@ -436,7 +436,7 @@ For example:
 
     $couch->db('sofa');
     my @rows = $couch->view('sofa', 'recent-posts');
-    say $_>_id foreach @rows; 
+    say $_->_id foreach @rows; 
 
 =cut
 
@@ -449,7 +449,8 @@ sub view
     $view = $self->get($self->url(
 	    [$self->{db}, $design, '_view', $view], $opts
 	));
-    return wantarray ? @{$view->{rows}} : $view;
+    return ( $self->ok ? @{$view->{rows}} : () ) if (wantarray)
+    return $view;
 }
 
 =head1 RESULTS METHODS
