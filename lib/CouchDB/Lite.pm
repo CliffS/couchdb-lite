@@ -449,7 +449,7 @@ sub view
     $view = $self->get($self->url(
 	    [$self->{db}, $design, '_view', $view], $opts
 	));
-    return ( $self->ok ? @{$view->{rows}} : () ) if (wantarray)
+    return ( $self->ok ? @{$view->{rows}} : () ) if (wantarray);
     return $view;
 }
 
