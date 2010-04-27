@@ -85,6 +85,10 @@ sub bool($) {
     UNIVERSAL::isa($_[0], 'JSON::XS::Boolean') ? true : false
 }
 
+sub TO_JSON($) {
+    return $_[0] ? \1 : \0;
+}
+
 
 =head1 AUTHOR
 

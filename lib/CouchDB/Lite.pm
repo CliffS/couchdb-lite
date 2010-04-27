@@ -30,7 +30,7 @@ Version 0.1.0
 
 =cut
 
-use version 0.80; our $VERSION = version->declare('v0.1.0');
+use version 0.80; our $VERSION = version->declare('v0.2.0');
 
 =head1 SYNOPSYS
 
@@ -96,6 +96,13 @@ sub checkdb($)
     croak "No database specified" unless $self->{db};
 }
 
+sub html($)
+{
+    my $string = shift;
+    $string =~ s/([^A-Za-z0-9])/sprintf("%%%02X", ord($1))/seg;
+    return $string;
+}
+
 =head1 CONSTRUCTOR
 
 =head2 new(%options)
@@ -129,6 +136,12 @@ Note: Both user and password should be set or neither will be used.
 The database to use.  This may either be set here or using the
 $couch->db call later.
 
+=item canonical
+
+If canonical is set to true, it is passed through to C<JSON::XS>
+causing the JSON objects to be formed with the keys in
+alphabetical order.
+
 =back
 
 =cut
@@ -140,7 +153,8 @@ sub new
     my $self = {};
     $self->{host} = $options{host} || 'localhost';
     $self->{port} = $options{port} || 5984;
-    $self->{json} = new JSON::XS->allow_blessed->convert_blessed;
+    $self->{json} = new JSON::XS->allow_blessed->convert_blessed->allow_nonref;
+    $self->{json}->canonical if $options{canonical};
     my $security = '';
     if ($options{user} && $options{password})
     {
@@ -310,14 +324,14 @@ with a key as a string, it will try to find the document with that key.
 If it is called with a reference to a hash, it will attempt to
 replace the document into the database.
 
-When getting a document, it is returned as a hash referebce, if found
-and C<< $couch->ok >> is set to C<true>.  If not found, a hrsh reference
+When getting a document, it is returned as a hash reference, if found
+and C<< $couch->ok >> is set to C<true>.  If not found, a hash reference
 of the error is returned containing C<error> and C<reason>. C<< $couch->ok >>
 will be false;
 
-When replacing a document, $C<< $couch->ok >> willl be set to true on
+When replacing a document, C<< $couch->ok >> will be set to true on
 success and the returned hash reference will contain the
-revision and the ID.  On failure, $C<< $couch->ok >> will be false
+revision and the ID.  On failure, C<< $couch->ok >> will be false
 and the returned hash reference will contain C<error> and C<reason>.
 
 =cut
@@ -406,7 +420,7 @@ sub temp_view
 
 =head2 view($designdoc, $view, \%opts)
 
-The C<$designdoc> may incluide the C<_design/> part of the name but
+The C<$designdoc> may include the C<_design/> part of the name but
 it will be added in if not present.  The C<$view> is a string containing the
 name of the view.  Opts is a hash reference of CouchDB standard options.
 
@@ -416,6 +430,14 @@ For example:
     my $view = $couch->view('sofa', 'recent-posts');
     die "View Failed: " . $couch->code unless $couch->ok;
 
+In list context view returns the array of rows.
+
+For example:
+
+    $couch->db('sofa');
+    my @rows = $couch->view('sofa', 'recent-posts');
+    say $_>_id foreach @rows; 
+
 =cut
 
 sub view
@@ -424,7 +446,10 @@ sub view
     (my $design = shift) =~ s[^(_design/)?][_design/];
     my $view = shift;
     my $opts = shift;
-    $self->get($self->url([$self->{db}, $design, '_view', $view], $opts));
+    $view = $self->get($self->url(
+	    [$self->{db}, $design, '_view', $view], $opts
+	));
+    return wantarray ? @{$view->{rows}} : $view;
 }
 
 =head1 RESULTS METHODS
@@ -552,10 +577,13 @@ be passed as a hash reference.
 sub url
 {
     my ($self, $path, $query)  = @_;
-    $path = join '/', @$path if ref $path;
     $path = '' unless $path;
+    $path = join '/', @$path if ref $path;
     my %queries = %$query if ref $query;
-    $query = join '&', map { join '=', ($_, $queries{$_}) } keys %queries;
+    $query = join '&', map {
+	join '=', ($_, html $self->{json}->encode($queries{$_}))
+    } keys %queries;
+    # print Dumper $query; exit;
     my $url = "/$path";
     $url .= "?$query" if $query;
     return $url;
