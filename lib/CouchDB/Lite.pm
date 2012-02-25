@@ -26,11 +26,11 @@ CouchDB::Lite - A simple perl module for CouchDB
 
 =head1 VERSION
 
-Version 0.1.0
+Version 0.2.1
 
 =cut
 
-use version 0.80; our $VERSION = version->declare('v0.2.0');
+use version 0.80; our $VERSION = version->declare('v0.2.1');
 
 =head1 SYNOPSYS
 
@@ -45,7 +45,7 @@ use version 0.80; our $VERSION = version->declare('v0.2.0');
 
     my @databases = $couch->all_dbs;
     $couch->db('sofa'); die unless $couch->ok;
-    my $docs = $couch->all_docs({ limit => 20 });
+    my $docs = $couch->all_docs( limit => 20 );
     my $post = $couch->doc('A-test-post'); die unless $couch->ok;
     $couch->doc($post);
     my $view = $couch->view('sofa', 'recent-posts');
@@ -154,6 +154,7 @@ sub new
     $self->{host} = $options{host} || 'localhost';
     $self->{port} = $options{port} || 5984;
     $self->{json} = new JSON::XS->allow_blessed->convert_blessed->allow_nonref;
+    $self->{json}->utf8;
     $self->{json}->canonical if $options{canonical};
     my $security = '';
     if ($options{user} && $options{password})
@@ -357,7 +358,7 @@ the key and the revision as strings or you may pass the document
 as a hash reference and the key and revision will be taken from the
 document.
 
-Returns a hash reference containg the result from the server.
+Returns a hash reference containing the result from the server.
 
 =cut
 
@@ -377,6 +378,72 @@ sub delete_doc
     }
     $self->delete($self->url([$self->{db}, $id], {rev => $rev}));
 }
+
+=head2 bulk_delete($docs)
+
+This bulk deletes a set of documents from the database.  You should
+pass one of the following:
+
+=over
+
+=item *
+A reference to an array of ids and revs in the form:
+
+    [
+	{
+	    id  => '79fb51ea9eea6b7c67c24863e8522df8',
+	    rev => '1-452769b54fb799fcd31c2970f85e5a13'
+	}
+	...
+    ]
+
+=item *
+A reference to the return value from all_docs
+
+=item *
+A reference to an array of documents.
+
+The ids and revs will be taken from the documents.
+
+=back
+
+It returns the hash reference containing the result from the server.
+
+=cut
+
+sub bulk_delete
+{
+    my $self = shift;
+    my $ref = shift;
+    my @todelete;
+    if (ref $ref eq 'ARRAY')	# an array of docs or hashes
+    {
+	foreach my $doc (@$ref)
+	{
+	    push @todelete, {
+		_id	=> $doc->{_id} || $doc->{id},
+		_rev	=> $doc->{_rev} || $doc->{rev},
+		_deleted => true
+	    };
+	}
+    }
+    elsif (ref $ref eq 'HASH' && $ref->{total_rows} && $ref->{rows})
+    {
+	foreach my $doc (@{$ref->{rows}})
+	{
+	    push @todelete, {
+		_id	    => $doc->{id},
+		_rev	    => $doc->{value}{rev},
+		_deleted => true
+	    };
+	}
+    }
+    my $body = {
+	docs		=> \@todelete,
+    };
+    $self->post($self->url([$self->{db}, '_bulk_docs']), $body);
+}
+
 
 =head1 VIEWS METHODS
 
@@ -547,6 +614,7 @@ sub post
     my $options = {'Content-Type' => 'application/json'};
     $body = $self->{json}->encode($body) if $body;
     my $rest = $self->{rest};
+    # print "$url $body\n"; exit;
     $rest->POST($url, $body, $options);
     $self->response($rest);
 }
@@ -582,7 +650,8 @@ sub url
     $path = join '/', @$path if ref $path;
     my %queries = %$query if ref $query;
     $query = join '&', map {
-	join '=', ($_, html $self->{json}->encode($queries{$_}))
+	# join '=', ($_, html $self->{json}->encode($queries{$_}))
+	join '=', ($_, html $queries{$_})
     } keys %queries;
     # print Dumper $query; exit;
     my $url = "/$path";
