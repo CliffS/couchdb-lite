@@ -37,7 +37,7 @@ CouchDB::Lite - A simple perl module for CouchDB
 
 =head1 VERSION
 
-Version 0.2.2
+Version 0.3.0
 
 =cut
 
@@ -157,7 +157,7 @@ alphabetical order.  If set to C<fixed>, then L<Tie::IxHash>
 will be used, meaning that the resultant reference will keep
 its field order when reading from or writing to the database.
 
-It should be noted that C<<sort => fixed>> will slow down the
+It should be noted that C<< sort => fixed >> will slow down the
 returning of documents as it needs to use the L<JSON::PP> Pure
 Perl version.  Also to pass in a new document in without it getting
 re-sorted, the C<%doc> hash should be tied to C<Tie::IxHash>
