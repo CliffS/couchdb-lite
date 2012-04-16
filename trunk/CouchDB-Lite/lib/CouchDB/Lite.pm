@@ -7,10 +7,12 @@ use strict;
 use Carp;
 
 use JSON::XS qw();
+use JSON::PP qw(decode_json);
 use REST::Client;
+use Tie::IxHash;
 use CouchDB::Lite::Boolean;
 
-use Data::Dumper;
+# use Data::Dumper;
 
 BEGIN {
     use Exporter ();
@@ -20,17 +22,26 @@ BEGIN {
     %EXPORT_TAGS = (boolean => [@EXPORT_OK]);
 }
 
+BEGIN {
+    no warnings 'redefine';
+    my $obj_parser_sub = \&JSON::PP::object;
+    *JSON::PP::object = sub {
+	tie my %obj, 'Tie::IxHash';
+	$obj_parser_sub->(\%obj);
+    };
+}
+
 =head1 NAME
 
 CouchDB::Lite - A simple perl module for CouchDB
 
 =head1 VERSION
 
-Version 0.2.1
+Version 0.2.2
 
 =cut
 
-use version 0.80; our $VERSION = version->declare('v0.2.1');
+use version 0.80; our $VERSION = version->declare('v0.3.0');
 
 =head1 SYNOPSYS
 
@@ -64,7 +75,7 @@ the CouchDB server.
 =head1 EXPORTS
 
 The module does not export anything by default.  JSON boolean values
-are represebted using L<CouchDB::Lite::Boolean> rather than
+are represented using L<CouchDB::Lite::Boolean> rather than
 L<JSON::XS::Boolean> values.  Although the code has been shamelessly
 stolen from L<JSON::XS::Boolean> (thanks Marc), the
 L<CouchDB::Lite::Boolean> value has the advantage that it stringifies 
@@ -96,10 +107,10 @@ sub checkdb($)
     croak "No database specified" unless $self->{db};
 }
 
-sub html($)
+sub urlencode($)
 {
     my $string = shift;
-    $string =~ s/([^A-Za-z0-9])/sprintf("%%%02X", ord($1))/seg;
+    $string =~ s{([^A-Za-z0-9_/])}{sprintf("%%%02X", ord($1))}seg;
     return $string;
 }
 
@@ -136,11 +147,21 @@ Note: Both user and password should be set or neither will be used.
 The database to use.  This may either be set here or using the
 $couch->db call later.
 
-=item canonical
+=item sort
 
-If canonical is set to true, it is passed through to C<JSON::XS>
+The sort can be set to C<none> (the default), C<canonical> or
+C<fixed>.  If set to C<canonical>, the canonical parameter is
+passed to L<JSON::XS>
 causing the JSON objects to be formed with the keys in
-alphabetical order.
+alphabetical order.  If set to C<fixed>, then L<Tie::IxHash>
+will be used, meaning that the resultant reference will keep
+its field order when reading from or writing to the database.
+
+It should be noted that C<<sort => fixed>> will slow down the
+returning of documents as it needs to use the L<JSON::PP> Pure
+Perl version.  Also to pass in a new document in without it getting
+re-sorted, the C<%doc> hash should be tied to C<Tie::IxHash>
+before populating it.
 
 =back
 
@@ -150,12 +171,16 @@ sub new
 {
     my $class = shift;
     my %options = @_;
+    my $sort = $options{sort} // 'none';
+    croak "Invalid sort: $sort" unless $sort =~ /^none|canonical|fixed$/;
     my $self = {};
     $self->{host} = $options{host} || 'localhost';
     $self->{port} = $options{port} || 5984;
     $self->{json} = new JSON::XS->allow_blessed->convert_blessed->allow_nonref;
     $self->{json}->utf8;
     $self->{json}->canonical if $options{canonical};
+    $self->{json}->canonical if $sort eq 'canonical';
+    $self->{sort} = $sort;
     my $security = '';
     if ($options{user} && $options{password})
     {
@@ -562,7 +587,14 @@ sub response
     my $rest = shift;
     $self->{code} = $rest->responseCode;
     $self->{ok} = $rest->responseCode < 300 ? true : false;
-    my $json = $self->{json}->decode($rest->responseContent);
+    my $json;
+    if ($self->{sort} eq 'fixed')
+    {
+	$json = decode_json($rest->responseContent);
+    }
+    else {
+	$json = $self->{json}->decode($rest->responseContent);
+    }
     return $json;
 }
 
@@ -614,7 +646,6 @@ sub post
     my $options = {'Content-Type' => 'application/json'};
     $body = $self->{json}->encode($body) if $body;
     my $rest = $self->{rest};
-    # print "$url $body\n"; exit;
     $rest->POST($url, $body, $options);
     $self->response($rest);
 }
@@ -647,13 +678,12 @@ sub url
 {
     my ($self, $path, $query)  = @_;
     $path = '' unless $path;
-    $path = join '/', @$path if ref $path;
+    $path = join '/', map { urlencode $_ } @$path if ref $path;
     my %queries = %$query if ref $query;
     $query = join '&', map {
-	# join '=', ($_, html $self->{json}->encode($queries{$_}))
-	join '=', ($_, html $queries{$_})
+	# join '=', ($_, urlencode $self->{json}->encode($queries{$_}))
+	join '=', ($_, urlencode $queries{$_})
     } keys %queries;
-    # print Dumper $query; exit;
     my $url = "/$path";
     $url .= "?$query" if $query;
     return $url;
